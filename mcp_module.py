@@ -10,24 +10,21 @@ import cv2
 import numpy as np
 from shapely.geometry import Polygon
 from shapely.ops import unary_union
-import open3d as o3d
 
 # 결과 ZIP을 저장할 디렉터리
 STATIC_DIR = "static"
 # 임시 작업용 디렉터리
 TEMP_DIR = "mcp_temp"
-# (옵션) 외부 URL을 만들 때 쓰이는 베이스
-STATIC_URL_BASE = os.getenv("STATIC_URL_BASE", "/static")
 
 
 def convert_map(b64_image: str) -> str:
     """
-    Base64로 인코딩된 2D 이미지를 받아,
-    겹침 없는 벽체를 개별 OBJ로 변환한 뒤 ZIP으로 묶어 static 디렉터리에 저장하고,
-    '실제 파일 경로'를 반환합니다.
+    Base64 인코딩된 2D 이미지를 받아,
+    벽체를 개별 OBJ로 변환한 뒤 ZIP으로 묶어 static 디렉터리에 저장하고,
+    실제 파일 경로를 반환합니다.
     """
 
-    # 1) 캐시 체크: 동일 이미지면 이미 만들어진 ZIP 경로 바로 반환
+    # 1) 캐시 체크
     img_bytes = base64.b64decode(b64_image)
     hash_key = hashlib.md5(img_bytes).hexdigest()
     file_name = f"map_walls_{hash_key}.zip"
@@ -46,12 +43,12 @@ def convert_map(b64_image: str) -> str:
     if img is None:
         raise ValueError("이미지 디코딩 실패")
 
-    # 4) 파라미터 설정
+    # 4) 파라미터
     cm_per_pixel = 1.0
     wall_height = 200.0
     wall_thick = 2
 
-    # 5) 엣지 검출 → 팽창 → 클로징
+    # 5) 엣지 → 팽창 → 클로징
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
     edges = cv2.Canny(gray, 50, 150)
     ker1 = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (wall_thick, wall_thick))
@@ -63,7 +60,7 @@ def convert_map(b64_image: str) -> str:
     n_labels, labels = cv2.connectedComponents(mask)
     parts = []
 
-    # 7) Shapely union 으로 중복 contour 병합 → 벽체 폴리곤 생성
+    # 7) Shapely union → verts, faces 수집
     for lid in range(1, n_labels):
         comp_mask = (labels == lid).astype(np.uint8) * 255
         if cv2.countNonZero(comp_mask) < 20:
@@ -75,6 +72,7 @@ def convert_map(b64_image: str) -> str:
         if hierarchy is None:
             continue
 
+        # Polygon 병합
         polys = []
         for i, cnt in enumerate(contours):
             outer = [tuple(p[0]) for p in cnt]
@@ -96,16 +94,18 @@ def convert_map(b64_image: str) -> str:
         for j in range(len(ext_coords)):
             x0, y0 = ext_coords[j]
             x1, y1 = ext_coords[(j + 1) % len(ext_coords)]
-            verts_local.extend([
-                [x0, y0, 0.0],
-                [x1, y1, 0.0],
-                [x1, y1, wall_height],
-                [x0, y0, wall_height]
-            ])
-            faces_local.extend([
-                [offset, offset + 1, offset + 2],
-                [offset + 2, offset + 3, offset]
-            ])
+            # 4개 vert
+            verts_local += [
+                (x0 * cm_per_pixel, y0 * cm_per_pixel, 0.0),
+                (x1 * cm_per_pixel, y1 * cm_per_pixel, 0.0),
+                (x1 * cm_per_pixel, y1 * cm_per_pixel, wall_height),
+                (x0 * cm_per_pixel, y0 * cm_per_pixel, wall_height),
+            ]
+            # 2개 face
+            faces_local += [
+                (offset + 1, offset + 2, offset + 3),
+                (offset + 3, offset + 4, offset + 1),
+            ]
             offset += 4
 
         # 내부 홀
@@ -114,37 +114,35 @@ def convert_map(b64_image: str) -> str:
             for k in range(len(hole_coords)):
                 x0, y0 = hole_coords[k]
                 x1, y1 = hole_coords[(k + 1) % len(hole_coords)]
-                verts_local.extend([
-                    [x0, y0, 0.0],
-                    [x1, y1, 0.0],
-                    [x1, y1, wall_height],
-                    [x0, y0, wall_height]
-                ])
-                faces_local.extend([
-                    [offset, offset + 2, offset + 1],
-                    [offset + 2, offset + 3, offset]
-                ])
+                verts_local += [
+                    (x0 * cm_per_pixel, y0 * cm_per_pixel, 0.0),
+                    (x1 * cm_per_pixel, y1 * cm_per_pixel, 0.0),
+                    (x1 * cm_per_pixel, y1 * cm_per_pixel, wall_height),
+                    (x0 * cm_per_pixel, y0 * cm_per_pixel, wall_height),
+                ]
+                faces_local += [
+                    (offset + 1, offset + 3, offset + 2),
+                    (offset + 3, offset + 4, offset + 1),
+                ]
                 offset += 4
 
         if verts_local:
             parts.append((verts_local, faces_local))
 
-    # 8) ZIP으로 각 파트를 개별 OBJ 파일로 쓰기
+    # 8) ZIP에 개별 OBJ 작성 (Open3D 없이)
     with zipfile.ZipFile(zip_temp_path, "w", compression=zipfile.ZIP_DEFLATED) as zf:
         for idx, (verts, faces) in enumerate(parts):
-            mesh = o3d.geometry.TriangleMesh(
-                vertices=o3d.utility.Vector3dVector(np.array(verts) * cm_per_pixel),
-                triangles=o3d.utility.Vector3iVector(np.array(faces, dtype=np.int32))
-            )
-            mesh.compute_vertex_normals()
-
-            # OBJ 문자열 생성
-            lines = [f"v {x} {y} {z}" for x, y, z in np.asarray(mesh.vertices)]
-            lines += [f"f {a+1} {b+1} {c+1}" for a, b, c in np.asarray(mesh.triangles)]
+            lines = []
+            # v lines
+            for x, y, z in verts:
+                lines.append(f"v {x:.4f} {y:.4f} {z:.4f}")
+            # f lines
+            for a, b, c in faces:
+                lines.append(f"f {a} {b} {c}")
             zf.writestr(f"wall_{idx}.obj", "\n".join(lines))
 
-    # 9) 임시 ZIP 이동 → static
+    # 9) ZIP 이동
     shutil.move(zip_temp_path, zip_static_path)
 
-    # 10) 실제 파일 경로 반환
+    # 10) 파일 경로 반환
     return zip_static_path
