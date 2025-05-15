@@ -1,5 +1,3 @@
-# mcp_module.py
-
 import os
 import base64
 import hashlib
@@ -129,7 +127,7 @@ def convert_map(b64_image: str) -> str:
         if verts_local:
             parts.append((verts_local, faces_local))
 
-    # 8) ZIP에 개별 OBJ 작성 (Open3D 없이)
+    # 8) ZIP에 개별 OBJ 작성
     with zipfile.ZipFile(zip_temp_path, "w", compression=zipfile.ZIP_DEFLATED) as zf:
         for idx, (verts, faces) in enumerate(parts):
             lines = []
