@@ -43,7 +43,7 @@
 
 별도의 로컬 설치 없이 Streamlit Community Cloud 플랫폼에서 바로 이 애플리케이션을 실행할 수 있습니다:
 
-1.  고유 URL ( `https://2dto3d-conversion.streamlit.app/`)로 접속합니다.
+1.  고유 URL ( https://2dto3d-conversion.streamlit.app )로 접속합니다.
 2.  웹 앱 UI에 접속하면 이제 로컬 환경과 동일하게 이미지를 업로드하고 3D 변환 기능을 사용할 수 있습니다.
 
 ---
