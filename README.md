@@ -63,7 +63,7 @@ map_walls_e4a61f...49fd.zip
 
 ---
 ### 서비스 화면
-https://drive.google.com/file/d/1a1L7IYdF2gxOxS8leKou-9FPLJ6isjZi/view?usp=drive_link 
+https://drive.google.com/file/d/1W_RgWACeL2wPCerIKiDNpGM_1-sC5b9F/view?usp=drive_link
 
 ---
 ### 한계 및 향후 개선
